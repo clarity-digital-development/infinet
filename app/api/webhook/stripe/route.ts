@@ -1,13 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe, verifyWebhookSignature, STRIPE_WEBHOOK_EVENTS } from '@/lib/stripe-config'
 import {
-  getUserByClerkId,
   getUserByStripeCustomerId,
+  getUserByClerkId,
   updateUserSubscription,
   logSubscriptionEvent
 } from '@/lib/database/db'
 import { SUBSCRIPTION_TIERS } from '@/lib/subscription-tiers'
 import Stripe from 'stripe'
+
+// Look up user by stripe customer ID, falling back to Clerk userId from customer metadata
+async function findUserForCustomer(customerId: string): Promise<any> {
+  // Try by stripe_customer_id first
+  let user = await getUserByStripeCustomerId(customerId)
+  if (user) return user
+
+  // Fallback: get userId from Stripe customer metadata
+  try {
+    const customer = await stripe.customers.retrieve(customerId)
+    if (!customer.deleted && customer.metadata?.userId) {
+      user = await getUserByClerkId(customer.metadata.userId)
+      if (user) {
+        // Save the stripe_customer_id so future lookups work
+        await updateUserSubscription(user.id, {
+          stripe_customer_id: customerId,
+        })
+        console.log(`Linked Stripe customer ${customerId} to user ${user.id} via metadata fallback`)
+        return user
+      }
+    }
+  } catch (error) {
+    console.error('Error in metadata fallback lookup:', error)
+  }
+
+  return null
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,7 +91,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Get user by stripe customer ID
-        const user = await getUserByStripeCustomerId(subscription.customer as string)
+        const user = await findUserForCustomer(subscription.customer as string)
 
         if (!user) {
           console.error('No user found for Stripe customer:', subscription.customer)
@@ -126,7 +153,7 @@ export async function POST(request: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription
 
         // Get user by stripe customer ID
-        const user = await getUserByStripeCustomerId(subscription.customer as string)
+        const user = await findUserForCustomer(subscription.customer as string)
 
         if (!user) {
           console.error('No user found for Stripe customer:', subscription.customer)
@@ -167,7 +194,7 @@ export async function POST(request: NextRequest) {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
           // Get user by stripe customer ID
-          const user = await getUserByStripeCustomerId(subscription.customer as string)
+          const user = await findUserForCustomer(subscription.customer as string)
 
           if (user) {
             // Update subscription status to past_due
@@ -195,7 +222,7 @@ export async function POST(request: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription
 
         // Get user by stripe customer ID
-        const user = await getUserByStripeCustomerId(subscription.customer as string)
+        const user = await findUserForCustomer(subscription.customer as string)
 
         if (user) {
           console.log(`Trial ending soon for user ${user.email}`)

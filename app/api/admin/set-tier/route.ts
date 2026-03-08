@@ -28,21 +28,19 @@ export async function POST(request: NextRequest) {
     let userToUpdate = targetUserId
 
     if (targetEmail && !targetUserId) {
-      const result = await sql`
-        SELECT user_id FROM users_subscription
-        WHERE user_id IN (
-          SELECT user_id FROM users_subscription
-        )
-        LIMIT 1
-      `
-      // Note: We can't query Clerk from here easily, so targetUserId is preferred
-      if (!result.rows[0]) {
-        return NextResponse.json({ error: 'User not found. Please provide targetUserId.' }, { status: 404 })
+      const client = await clerkClient()
+      const users = await client.users.getUserList({
+        emailAddress: [targetEmail],
+        limit: 1,
+      })
+      if (users.data.length === 0) {
+        return NextResponse.json({ error: `No user found with email: ${targetEmail}` }, { status: 404 })
       }
+      userToUpdate = users.data[0].id
     }
 
     if (!userToUpdate) {
-      return NextResponse.json({ error: 'targetUserId is required' }, { status: 400 })
+      return NextResponse.json({ error: 'targetUserId or targetEmail is required' }, { status: 400 })
     }
 
     const now = new Date()
