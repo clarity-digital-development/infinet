@@ -15,9 +15,9 @@ const isPublicRoute = createRouteMatcher([
 export default clerkMiddleware(async (auth, req) => {
   const { userId, sessionId } = await auth()
 
-  // If user is authenticated and trying to access sign-in/sign-up, redirect to chat
+  // If user is authenticated, redirect landing/auth pages to chat
   if (userId && sessionId) {
-    if (req.nextUrl.pathname.startsWith('/sign-in') || req.nextUrl.pathname.startsWith('/sign-up')) {
+    if (req.nextUrl.pathname === '/' || req.nextUrl.pathname.startsWith('/sign-in') || req.nextUrl.pathname.startsWith('/sign-up')) {
       const url = req.nextUrl.clone()
       url.pathname = '/chat'
       return NextResponse.redirect(url)
