@@ -53,6 +53,14 @@ export async function POST() {
       let synced = false
       let method = ''
 
+      // Safely handle potentially null period dates
+      const periodStart = (sub as any).current_period_start
+        ? new Date((sub as any).current_period_start * 1000).toISOString()
+        : new Date().toISOString()
+      const periodEnd = (sub as any).current_period_end
+        ? new Date((sub as any).current_period_end * 1000).toISOString()
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
       if (clerkUserId) {
         // Ensure user exists in DB and update their subscription
         await sql`
@@ -61,16 +69,16 @@ export async function POST() {
             current_period_start, current_period_end
           ) VALUES (
             ${clerkUserId}, ${tier}, 'active', ${customer.id}, ${sub.id},
-            ${new Date((sub as any).current_period_start * 1000).toISOString()},
-            ${new Date((sub as any).current_period_end * 1000).toISOString()}
+            ${periodStart},
+            ${periodEnd}
           )
           ON CONFLICT (user_id) DO UPDATE SET
             tier = ${tier},
             status = 'active',
             stripe_customer_id = ${customer.id},
             stripe_subscription_id = ${sub.id},
-            current_period_start = ${new Date((sub as any).current_period_start * 1000).toISOString()},
-            current_period_end = ${new Date((sub as any).current_period_end * 1000).toISOString()},
+            current_period_start = ${periodStart},
+            current_period_end = ${periodEnd},
             updated_at = CURRENT_TIMESTAMP
         `
 
@@ -91,7 +99,7 @@ export async function POST() {
         clerkUserId: clerkUserId || 'NOT FOUND',
         synced,
         method,
-        periodEnd: new Date((sub as any).current_period_end * 1000).toISOString(),
+        periodEnd,
       })
     }
 
