@@ -48,6 +48,26 @@ export async function POST(request: NextRequest) {
       // Continue without database for now
     }
 
+    // Check if user already has an active Stripe subscription
+    if (dbUser?.stripe_customer_id) {
+      try {
+        const existingSubs = await stripe.subscriptions.list({
+          customer: dbUser.stripe_customer_id,
+          status: 'active',
+          limit: 1,
+        })
+        if (existingSubs.data.length > 0) {
+          return NextResponse.json(
+            { error: 'You already have an active subscription. Please manage it from Settings.' },
+            { status: 400 }
+          )
+        }
+      } catch (error) {
+        // Continue if check fails
+        console.error('Error checking existing subscriptions:', error)
+      }
+    }
+
     // Get or create Stripe customer
     let customerId: string
 
