@@ -2,16 +2,13 @@
 
 import { ChatInterface } from '@/components/chat/ChatInterface'
 import { useChatStore } from '@/lib/store'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
-export default function ChatPage() {
-  const { currentChatId, createChat, chats } = useChatStore()
-  const [isInitialized, setIsInitialized] = useState(false)
+function CheckoutVerifier() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  // Verify checkout session if returning from Stripe
   useEffect(() => {
     const sessionId = searchParams.get('session_id')
     if (!sessionId) return
@@ -29,20 +26,24 @@ export default function ChatPage() {
       })
       .catch(err => console.error('Checkout verification failed:', err))
       .finally(() => {
-        // Remove session_id from URL
         router.replace('/chat')
       })
   }, [searchParams, router])
 
+  return null
+}
+
+export default function ChatPage() {
+  const { currentChatId, createChat, chats } = useChatStore()
+  const [isInitialized, setIsInitialized] = useState(false)
+
   useEffect(() => {
-    // Create a new chat if none exists
     if (chats.length === 0 && !currentChatId) {
       createChat()
     }
     setIsInitialized(true)
   }, [chats.length, currentChatId, createChat])
 
-  // Don't render until client-side initialization is complete
   if (!isInitialized) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -53,5 +54,12 @@ export default function ChatPage() {
     )
   }
 
-  return <ChatInterface />
+  return (
+    <>
+      <Suspense fallback={null}>
+        <CheckoutVerifier />
+      </Suspense>
+      <ChatInterface />
+    </>
+  )
 }
