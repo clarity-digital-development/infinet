@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { stripe, STRIPE_PRICE_IDS } from '@/lib/stripe-config'
-import { updateUserSubscription, getUserByStripeCustomerId } from '@/lib/database/db'
+
 import { sql } from '@/lib/database/postgres-client'
 
 const ADMIN_EMAILS = ['tannercarlson@vvsvault.com', 'tannerscarlson@gmail.com']
@@ -74,7 +74,8 @@ export async function POST() {
             updated_at = CURRENT_TIMESTAMP
         `
 
-        // Clear usage cache for recalculation
+        // Wipe old token usage and cache for a fresh start
+        await sql`DELETE FROM token_usage WHERE user_id = ${clerkUserId}`
         await sql`DELETE FROM monthly_usage_cache WHERE user_id = ${clerkUserId}`
 
         synced = true
