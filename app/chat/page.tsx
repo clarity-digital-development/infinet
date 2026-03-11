@@ -2,15 +2,16 @@
 
 import { ChatInterface } from '@/components/chat/ChatInterface'
 import { useChatStore } from '@/lib/store'
-import { useEffect, useState, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
-function CheckoutVerifier() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
+export default function ChatPage() {
+  const { currentChatId, createChat, chats } = useChatStore()
+  const [isInitialized, setIsInitialized] = useState(false)
 
+  // Verify checkout session if returning from Stripe
   useEffect(() => {
-    const sessionId = searchParams.get('session_id')
+    const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session_id')
     if (!sessionId) return
 
     fetch('/api/verify-checkout', {
@@ -26,16 +27,10 @@ function CheckoutVerifier() {
       })
       .catch(err => console.error('Checkout verification failed:', err))
       .finally(() => {
-        router.replace('/chat')
+        // Remove session_id from URL
+        window.history.replaceState({}, '', '/chat')
       })
-  }, [searchParams, router])
-
-  return null
-}
-
-export default function ChatPage() {
-  const { currentChatId, createChat, chats } = useChatStore()
-  const [isInitialized, setIsInitialized] = useState(false)
+  }, [])
 
   useEffect(() => {
     if (chats.length === 0 && !currentChatId) {
@@ -54,12 +49,5 @@ export default function ChatPage() {
     )
   }
 
-  return (
-    <>
-      <Suspense fallback={null}>
-        <CheckoutVerifier />
-      </Suspense>
-      <ChatInterface />
-    </>
-  )
+  return <ChatInterface />
 }
