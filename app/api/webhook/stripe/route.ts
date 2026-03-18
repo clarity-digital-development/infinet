@@ -90,8 +90,25 @@ export async function POST(request: NextRequest) {
           tier = 'limitless'
         }
 
-        // Get user by stripe customer ID
-        const user = await findUserForCustomer(subscription.customer as string)
+        // Get user by stripe customer ID, or create from Stripe metadata
+        let user = await findUserForCustomer(subscription.customer as string)
+
+        if (!user) {
+          // User row doesn't exist yet — create it from Stripe customer metadata
+          try {
+            const customer = await stripe.customers.retrieve(subscription.customer as string)
+            if (!customer.deleted && customer.metadata?.userId) {
+              const clerkUserId = customer.metadata.userId
+              console.log(`Creating subscription row for new user ${clerkUserId} from webhook`)
+              await updateUserSubscription(clerkUserId, {
+                stripe_customer_id: subscription.customer as string,
+              })
+              user = { id: clerkUserId, user_id: clerkUserId }
+            }
+          } catch (err) {
+            console.error('Error creating user from webhook:', err)
+          }
+        }
 
         if (!user) {
           console.error('No user found for Stripe customer:', subscription.customer)

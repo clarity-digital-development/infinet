@@ -386,7 +386,7 @@ export async function getOrCreateUser(clerkId: string, email: string): Promise<a
   }
 }
 
-// Update user subscription
+// Update user subscription (upserts — creates row if it doesn't exist)
 export async function updateUserSubscription(
   userId: string,
   updates: {
@@ -400,79 +400,69 @@ export async function updateUserSubscription(
   }
 ): Promise<boolean> {
   try {
-    const params: any = {}
-    const sets: string[] = []
+    const now = new Date()
+    const tier = updates.subscription_tier || 'free'
+    const status = updates.subscription_status || 'active'
+    const customerId = updates.stripe_customer_id || null
+    const subscriptionId = updates.stripe_subscription_id || null
+    const periodStart = (updates.subscription_period_start || now).toISOString()
+    const periodEnd = (updates.subscription_period_end || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)).toISOString()
 
-    if (updates.subscription_tier) {
-      params.tier = updates.subscription_tier
-      sets.push('tier = ${tier}')
-    }
-    if (updates.subscription_status) {
-      params.status = updates.subscription_status
-      sets.push('status = ${status}')
-    }
-    if (updates.stripe_subscription_id) {
-      params.stripe_subscription_id = updates.stripe_subscription_id
-      sets.push('stripe_subscription_id = ${stripe_subscription_id}')
-    }
-    if (updates.stripe_customer_id) {
-      params.stripe_customer_id = updates.stripe_customer_id
-      sets.push('stripe_customer_id = ${stripe_customer_id}')
-    }
-    if (updates.subscription_period_start) {
-      params.period_start = updates.subscription_period_start.toISOString()
-      sets.push('current_period_start = ${period_start}')
-    }
-    if (updates.subscription_period_end) {
-      params.period_end = updates.subscription_period_end.toISOString()
-      sets.push('current_period_end = ${period_end}')
-    }
+    // First try to update existing row
+    const result = await query(
+      `UPDATE users_subscription SET
+        tier = COALESCE($1, tier),
+        status = COALESCE($2, status),
+        stripe_customer_id = COALESCE($3, stripe_customer_id),
+        stripe_subscription_id = COALESCE($4, stripe_subscription_id),
+        current_period_start = COALESCE($5, current_period_start),
+        current_period_end = COALESCE($6, current_period_end),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $7`,
+      [
+        updates.subscription_tier || null,
+        updates.subscription_status || null,
+        updates.stripe_customer_id || null,
+        updates.stripe_subscription_id || null,
+        updates.subscription_period_start?.toISOString() || null,
+        updates.subscription_period_end?.toISOString() || null,
+        userId
+      ]
+    )
 
-    if (sets.length === 0) return true
-
-    // Build and execute the update query dynamically
-    const setParts: string[] = []
-    const values: any[] = []
-    let paramCount = 1
-
-    if (updates.subscription_tier) {
-      setParts.push(`tier = $${paramCount++}`)
-      values.push(updates.subscription_tier)
+    // If no row was updated, insert a new one
+    if (result.rowCount === 0) {
+      console.log(`No existing subscription for ${userId}, creating new row`)
+      await query(
+        `INSERT INTO users_subscription (
+          user_id, tier, status, stripe_customer_id, stripe_subscription_id,
+          current_period_start, current_period_end
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (user_id) DO UPDATE SET
+          tier = EXCLUDED.tier,
+          status = EXCLUDED.status,
+          stripe_customer_id = EXCLUDED.stripe_customer_id,
+          stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+          current_period_start = EXCLUDED.current_period_start,
+          current_period_end = EXCLUDED.current_period_end,
+          updated_at = CURRENT_TIMESTAMP`,
+        [userId, tier, status, customerId, subscriptionId, periodStart, periodEnd]
+      )
     }
-    if (updates.subscription_status) {
-      setParts.push(`status = $${paramCount++}`)
-      values.push(updates.subscription_status)
-    }
-    if (updates.stripe_subscription_id) {
-      setParts.push(`stripe_subscription_id = $${paramCount++}`)
-      values.push(updates.stripe_subscription_id)
-    }
-    if (updates.stripe_customer_id) {
-      setParts.push(`stripe_customer_id = $${paramCount++}`)
-      values.push(updates.stripe_customer_id)
-    }
-    if (updates.subscription_period_start) {
-      setParts.push(`current_period_start = $${paramCount++}`)
-      values.push(updates.subscription_period_start.toISOString())
-    }
-    if (updates.subscription_period_end) {
-      setParts.push(`current_period_end = $${paramCount++}`)
-      values.push(updates.subscription_period_end.toISOString())
-    }
-
-    values.push(userId)
-
-    const queryText = `UPDATE users_subscription SET ${setParts.join(', ')} WHERE user_id = $${paramCount}`
-    await query(queryText, values)
 
     // Update the cache if tier changed
     if (updates.subscription_tier) {
       const limit = getTokenLimit(updates.subscription_tier as any)
-      await sql`
-        UPDATE monthly_usage_cache
-        SET tokens_remaining = ${limit} - total_tokens
-        WHERE user_id = ${userId}
-      `
+      await query(
+        `INSERT INTO monthly_usage_cache (
+          user_id, billing_period_start, billing_period_end,
+          total_tokens, total_requests, tokens_remaining, last_updated
+        ) VALUES ($1, $2, $3, 0, 0, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) DO UPDATE SET
+          tokens_remaining = $4 - monthly_usage_cache.total_tokens,
+          last_updated = CURRENT_TIMESTAMP`,
+        [userId, periodStart, periodEnd, limit]
+      )
     }
 
     return true

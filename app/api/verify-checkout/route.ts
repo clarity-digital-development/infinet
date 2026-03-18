@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { stripe, STRIPE_PRICE_IDS } from '@/lib/stripe-config'
 import { updateUserSubscription, getOrCreateUser } from '@/lib/database/db'
+import { sql } from '@/lib/database/postgres-client'
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     // Ensure user exists in DB
     const user = await getOrCreateUser(userId, session.customer_email || '')
 
-    // Update subscription with all details
+    // Update subscription with all details (upserts if row doesn't exist)
     await updateUserSubscription(userId, {
       subscription_tier: tier,
       subscription_status: 'active',
@@ -56,6 +57,10 @@ export async function POST(request: NextRequest) {
       subscription_period_start: new Date((subscription as any).current_period_start * 1000),
       subscription_period_end: new Date((subscription as any).current_period_end * 1000),
     })
+
+    // Wipe old token usage so the user starts fresh with their new plan
+    await sql`DELETE FROM token_usage WHERE user_id = ${userId}`
+    await sql`DELETE FROM monthly_usage_cache WHERE user_id = ${userId}`
 
     console.log(`Checkout verified: user ${userId} → ${tier} tier (session ${sessionId})`)
 
