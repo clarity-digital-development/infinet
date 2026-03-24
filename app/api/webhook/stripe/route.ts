@@ -258,6 +258,84 @@ export async function POST(request: NextRequest) {
         break
       }
 
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        console.log(`Checkout session completed: ${session.id}`)
+
+        if (session.mode === 'subscription' && session.subscription) {
+          const subscriptionId = typeof session.subscription === 'string'
+            ? session.subscription
+            : session.subscription.id
+
+          try {
+            // Retrieve the full subscription object
+            const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+            const customerId = session.customer as string
+
+            // Find or create user
+            let user = await findUserForCustomer(customerId)
+
+            if (!user) {
+              // Try from session metadata or customer metadata
+              try {
+                const customer = await stripe.customers.retrieve(customerId)
+                if (!customer.deleted && customer.metadata?.userId) {
+                  const clerkUserId = customer.metadata.userId
+                  // Upsert subscription row for this user
+                  await updateUserSubscription(clerkUserId, {
+                    stripe_customer_id: customerId,
+                  })
+                  user = { id: clerkUserId, user_id: clerkUserId }
+                }
+              } catch (err) {
+                console.error('Error creating user from checkout session:', err)
+              }
+            }
+
+            if (user) {
+              const priceId = subscription.items.data[0]?.price.id
+              let tier: 'starter' | 'premium' | 'limitless' = 'starter'
+
+              if (priceId === process.env.STRIPE_STARTER_PRICE_ID) {
+                tier = 'starter'
+              } else if (priceId === process.env.STRIPE_PREMIUM_PRICE_ID) {
+                tier = 'premium'
+              } else if (priceId === process.env.STRIPE_LIMITLESS_PRICE_ID) {
+                tier = 'limitless'
+              }
+
+              const tokenLimit = SUBSCRIPTION_TIERS[tier]?.tokenLimit || 0
+
+              await updateUserSubscription(user.id, {
+                subscription_tier: tier,
+                subscription_status: 'active',
+                stripe_customer_id: customerId,
+                stripe_subscription_id: subscription.id,
+                tokens_limit: tokenLimit,
+                subscription_period_start: new Date((subscription as any).current_period_start * 1000),
+                subscription_period_end: new Date((subscription as any).current_period_end * 1000),
+              })
+
+              await logSubscriptionEvent(
+                user.id,
+                'checkout.session.completed',
+                tier,
+                'active',
+                event.id,
+                { session_id: session.id, price_id: priceId }
+              )
+
+              console.log(`Checkout completed: user ${user.id} activated as ${tier}`)
+            } else {
+              console.error('No user found for checkout session customer:', customerId)
+            }
+          } catch (err) {
+            console.error('Error processing checkout.session.completed:', err)
+          }
+        }
+        break
+      }
+
       case STRIPE_WEBHOOK_EVENTS.PAYMENT_SUCCEEDED: {
         const paymentIntent = event.data.object as Stripe.PaymentIntent
         console.log(`Payment succeeded: ${paymentIntent.id}`)

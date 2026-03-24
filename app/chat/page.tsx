@@ -12,12 +12,20 @@ export default function ChatPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const sessionId = params.get('session_id')
-    if (!sessionId) return
+
+    // Also check sessionStorage in case the URL param was lost during auth redirect
+    const storedSessionId = sessionStorage.getItem('pending_checkout_session')
+
+    const checkoutId = sessionId || storedSessionId
+    if (!checkoutId) return
+
+    // Clear stored session
+    sessionStorage.removeItem('pending_checkout_session')
 
     fetch('/api/verify-checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId: checkoutId }),
     })
       .then(res => res.json())
       .then(data => {
@@ -28,7 +36,9 @@ export default function ChatPage() {
       .catch(err => console.error('Checkout verification failed:', err))
       .finally(() => {
         // Remove session_id from URL
-        window.history.replaceState({}, '', '/chat')
+        if (sessionId) {
+          window.history.replaceState({}, '', '/chat')
+        }
       })
   }, [])
 

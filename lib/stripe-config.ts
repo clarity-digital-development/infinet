@@ -20,6 +20,7 @@ export const STRIPE_PRICE_IDS = {
 
 // Stripe webhook events we handle
 export const STRIPE_WEBHOOK_EVENTS = {
+  CHECKOUT_COMPLETED: 'checkout.session.completed',
   SUBSCRIPTION_CREATED: 'customer.subscription.created',
   SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
   SUBSCRIPTION_DELETED: 'customer.subscription.deleted',

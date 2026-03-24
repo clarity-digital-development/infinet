@@ -54,6 +54,9 @@ export default function PricingPage() {
         throw new Error('Stripe failed to load')
       }
 
+      // Save session ID so it survives auth redirects after checkout
+      sessionStorage.setItem('pending_checkout_session', sessionId)
+
       const { error } = await stripe.redirectToCheckout({ sessionId })
 
       if (error) {
