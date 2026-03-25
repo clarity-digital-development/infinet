@@ -64,29 +64,45 @@ export async function POST(request: NextRequest) {
 
     console.log(`Processing chat for user ${userId}, estimated tokens: ${estimatedTokens}`)
 
-    const response = await fetch(veniceApiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${veniceApiKey}`,
-        'Accept': streaming ? 'text/event-stream' : 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'venice-uncensored',
-        messages,
-        stream: streaming,
-        temperature: 0.7,
-        max_tokens: 4096,
-      }),
-    })
+    const MODELS = ['venice-uncensored', 'olafangensan-glm-4.7-flash-heretic']
+    let response!: Response
 
-    if (!response.ok) {
+    for (const model of MODELS) {
+      response = await fetch(veniceApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${veniceApiKey}`,
+          'Accept': streaming ? 'text/event-stream' : 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: streaming,
+          temperature: 0.7,
+          max_tokens: 4096,
+        }),
+      })
+
+      if (response.ok) {
+        if (model !== MODELS[0]) {
+          console.log(`Primary model failed, using fallback: ${model}`)
+        }
+        break
+      }
+
       const errorText = await response.text()
-      console.error('Venice API error:', response.status, errorText)
-      return NextResponse.json(
-        { error: `API error: ${response.status}` },
-        { status: response.status }
-      )
+      console.error(`Venice API error with ${model}:`, response.status, errorText)
+
+      // If this is the last model, return the error
+      if (model === MODELS[MODELS.length - 1]) {
+        return NextResponse.json(
+          { error: `API error: ${response.status}` },
+          { status: response.status }
+        )
+      }
+      // Otherwise, try the next model
+      console.log(`Retrying with next fallback model...`)
     }
 
     // Track the actual tokens used
