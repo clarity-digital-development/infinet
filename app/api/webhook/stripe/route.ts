@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim()
 
     if (!webhookSecret) {
       console.error('Missing STRIPE_WEBHOOK_SECRET')
