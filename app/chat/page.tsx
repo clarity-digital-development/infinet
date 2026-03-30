@@ -3,10 +3,24 @@
 import { ChatInterface } from '@/components/chat/ChatInterface'
 import { useChatStore } from '@/lib/store'
 import { useEffect, useState } from 'react'
+import { useToast } from '@/hooks/use-toast'
 
 export default function ChatPage() {
   const { currentChatId, createChat, chats } = useChatStore()
   const [isInitialized, setIsInitialized] = useState(false)
+  const { toast } = useToast()
+
+  // Show success toast when returning after subscription activation
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('activated') === '1') {
+      window.history.replaceState({}, '', '/chat')
+      toast({
+        title: 'Subscription Activated!',
+        description: 'Your plan is now active. Enjoy Infinet!',
+      })
+    }
+  }, [toast])
 
   // Verify checkout session if returning from Stripe
   useEffect(() => {
@@ -31,14 +45,16 @@ export default function ChatPage() {
       .then(data => {
         if (data.success) {
           console.log(`Subscription activated: ${data.tier}`)
-        }
-      })
-      .catch(err => console.error('Checkout verification failed:', err))
-      .finally(() => {
-        // Remove session_id from URL
-        if (sessionId) {
+          // Hard reload so subscription state is fresh from the database
+          window.location.href = '/chat?activated=1'
+        } else {
+          console.error('Checkout verification failed:', data.error)
           window.history.replaceState({}, '', '/chat')
         }
+      })
+      .catch(err => {
+        console.error('Checkout verification failed:', err)
+        window.history.replaceState({}, '', '/chat')
       })
   }, [])
 
