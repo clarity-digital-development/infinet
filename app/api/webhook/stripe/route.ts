@@ -9,24 +9,46 @@ import {
 import { SUBSCRIPTION_TIERS } from '@/lib/subscription-tiers'
 import Stripe from 'stripe'
 
-// Look up user by stripe customer ID, falling back to Clerk userId from customer metadata
+// Look up user by stripe customer ID, falling back to Clerk userId from customer metadata or email
 async function findUserForCustomer(customerId: string): Promise<any> {
   // Try by stripe_customer_id first
   let user = await getUserByStripeCustomerId(customerId)
   if (user) return user
 
-  // Fallback: get userId from Stripe customer metadata
+  // Fallback: get userId from Stripe customer metadata or email
   try {
     const customer = await stripe.customers.retrieve(customerId)
-    if (!customer.deleted && customer.metadata?.userId) {
-      user = await getUserByClerkId(customer.metadata.userId)
+    if (customer.deleted) return null
+
+    // Try metadata userId
+    if (customer.metadata?.userId) {
+      const clerkUserId = customer.metadata.userId
+      user = await getUserByClerkId(clerkUserId)
       if (user) {
-        // Save the stripe_customer_id so future lookups work
-        await updateUserSubscription(user.id, {
-          stripe_customer_id: customerId,
-        })
+        await updateUserSubscription(user.id, { stripe_customer_id: customerId })
         console.log(`Linked Stripe customer ${customerId} to user ${user.id} via metadata fallback`)
         return user
+      }
+      // User not in DB yet — create a row for them using their Clerk ID
+      console.log(`Creating subscription row for ${clerkUserId} via metadata fallback`)
+      await updateUserSubscription(clerkUserId, { stripe_customer_id: customerId })
+      return { id: clerkUserId, user_id: clerkUserId }
+    }
+
+    // Last resort: look up by email via Clerk API
+    if (customer.email) {
+      try {
+        const { clerkClient } = await import('@clerk/nextjs/server')
+        const client = await clerkClient()
+        const users = await client.users.getUserList({ emailAddress: [customer.email], limit: 1 })
+        if (users.data.length > 0) {
+          const clerkUserId = users.data[0].id
+          console.log(`Found user ${clerkUserId} by email fallback for customer ${customerId}`)
+          await updateUserSubscription(clerkUserId, { stripe_customer_id: customerId })
+          return { id: clerkUserId, user_id: clerkUserId }
+        }
+      } catch (err) {
+        console.error('Error in email fallback lookup:', err)
       }
     }
   } catch (error) {
@@ -90,31 +112,14 @@ export async function POST(request: NextRequest) {
           tier = 'limitless'
         }
 
-        // Get user by stripe customer ID, or create from Stripe metadata
-        let user = await findUserForCustomer(subscription.customer as string)
-
-        if (!user) {
-          // User row doesn't exist yet — create it from Stripe customer metadata
-          try {
-            const customer = await stripe.customers.retrieve(subscription.customer as string)
-            if (!customer.deleted && customer.metadata?.userId) {
-              const clerkUserId = customer.metadata.userId
-              console.log(`Creating subscription row for new user ${clerkUserId} from webhook`)
-              await updateUserSubscription(clerkUserId, {
-                stripe_customer_id: subscription.customer as string,
-              })
-              user = { id: clerkUserId, user_id: clerkUserId }
-            }
-          } catch (err) {
-            console.error('Error creating user from webhook:', err)
-          }
-        }
+        // Get user by stripe customer ID, or create from Stripe metadata/email
+        const user = await findUserForCustomer(subscription.customer as string)
 
         if (!user) {
           console.error('No user found for Stripe customer:', subscription.customer)
           return NextResponse.json(
-            { error: 'User not found for customer' },
-            { status: 400 }
+            { received: true, warning: 'User not found for customer' },
+            { status: 200 }
           )
         }
 
@@ -175,8 +180,8 @@ export async function POST(request: NextRequest) {
         if (!user) {
           console.error('No user found for Stripe customer:', subscription.customer)
           return NextResponse.json(
-            { error: 'User not found for customer' },
-            { status: 400 }
+            { received: true, warning: 'User not found for customer' },
+            { status: 200 }
           )
         }
 
