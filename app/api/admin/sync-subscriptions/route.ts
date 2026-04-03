@@ -61,16 +61,31 @@ export async function POST() {
         ? new Date((sub as any).current_period_end * 1000).toISOString()
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-      if (clerkUserId) {
-        // Ensure user exists in DB and update their subscription
+      // Resolve clerk user ID — try metadata first, then email lookup
+      let resolvedClerkId = clerkUserId
+      if (!resolvedClerkId && customer.email) {
+        try {
+          const client = await clerkClient()
+          const users = await client.users.getUserList({ emailAddress: [customer.email], limit: 1 })
+          if (users.data.length > 0) {
+            resolvedClerkId = users.data[0].id
+            method = 'email_lookup'
+          }
+        } catch (err) {
+          console.error(`Email lookup failed for ${customer.email}:`, err)
+        }
+      } else if (resolvedClerkId) {
+        method = 'clerk_metadata'
+      }
+
+      if (resolvedClerkId) {
         await sql`
           INSERT INTO users_subscription (
             user_id, tier, status, stripe_customer_id, stripe_subscription_id,
             current_period_start, current_period_end
           ) VALUES (
-            ${clerkUserId}, ${tier}, 'active', ${customer.id}, ${sub.id},
-            ${periodStart},
-            ${periodEnd}
+            ${resolvedClerkId}, ${tier}, 'active', ${customer.id}, ${sub.id},
+            ${periodStart}, ${periodEnd}
           )
           ON CONFLICT (user_id) DO UPDATE SET
             tier = ${tier},
@@ -82,12 +97,10 @@ export async function POST() {
             updated_at = CURRENT_TIMESTAMP
         `
 
-        // Wipe old token usage and cache for a fresh start
-        await sql`DELETE FROM token_usage WHERE user_id = ${clerkUserId}`
-        await sql`DELETE FROM monthly_usage_cache WHERE user_id = ${clerkUserId}`
+        await sql`DELETE FROM token_usage WHERE user_id = ${resolvedClerkId}`
+        await sql`DELETE FROM monthly_usage_cache WHERE user_id = ${resolvedClerkId}`
 
         synced = true
-        method = 'clerk_metadata'
       }
 
       results.push({
@@ -96,9 +109,9 @@ export async function POST() {
         subscriptionId: sub.id,
         priceId,
         tier,
-        clerkUserId: clerkUserId || 'NOT FOUND',
+        clerkUserId: resolvedClerkId || 'NOT FOUND',
         synced,
-        method,
+        method: synced ? method : 'failed',
         periodEnd,
       })
     }
