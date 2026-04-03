@@ -120,77 +120,78 @@ export async function POST(request: NextRequest) {
 
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
+          let buffer = ''
+          let closed = false
+
+          const safeClose = () => {
+            if (!closed) {
+              closed = true
+              controller.close()
+            }
+          }
 
           try {
             while (true) {
               const { done, value } = await reader.read()
               if (done) break
 
-              const chunk = decoder.decode(value, { stream: true })
-              const lines = chunk.split('\n')
+              // Append to buffer — handles JSON split across chunks
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              // Keep the last incomplete line in the buffer
+              buffer = lines.pop() ?? ''
 
               for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const data = line.slice(6)
-                  if (data === '[DONE]') {
-                    // Calculate tokens - only bill for user input, not AI response length
-                    totalTokensUsed = countTokens(lastMessage)
+                if (!line.startsWith('data: ')) continue
+                const data = line.slice(6).trim()
+                if (!data) continue
 
-                    console.log('Final token usage:', {
-                      userMessage: lastMessage.substring(0, 50) + '...',
-                      userMessageTokens: totalTokensUsed,
-                      responseLength: fullResponse.length,
-                      userId
-                    })
+                if (data === '[DONE]') {
+                  totalTokensUsed = countTokens(lastMessage)
 
-                    // Track token usage in database
-                    await trackTokenUsage({
-                      user_id: userId,
-                      tokens_used: totalTokensUsed,
-                      tokens_estimated: estimatedTokens,
-                      timestamp: new Date(),
-                      billing_period_start: subscriptionCheck.subscription.currentPeriodStart,
-                      billing_period_end: subscriptionCheck.subscription.currentPeriodEnd,
-                      chat_id: request.headers.get('X-Chat-Id') || undefined,
-                      message_id: crypto.randomUUID(),
-                      message_type: 'text',
-                      model_used: 'venice-uncensored',
-                    })
+                  await trackTokenUsage({
+                    user_id: userId,
+                    tokens_used: totalTokensUsed,
+                    tokens_estimated: estimatedTokens,
+                    timestamp: new Date(),
+                    billing_period_start: subscriptionCheck.subscription.currentPeriodStart,
+                    billing_period_end: subscriptionCheck.subscription.currentPeriodEnd,
+                    chat_id: request.headers.get('X-Chat-Id') || undefined,
+                    message_id: crypto.randomUUID(),
+                    message_type: 'text',
+                    model_used: 'venice-uncensored',
+                  })
 
-                    // Check if we need to send usage alerts
-                    await checkUsageAlerts(userId)
+                  await checkUsageAlerts(userId)
 
-                    // Send final token count
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                      type: 'usage',
-                      tokensUsed: totalTokensUsed,
-                      subscription: subscriptionCheck.subscription
-                    })}\n\n`))
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    type: 'usage',
+                    tokensUsed: totalTokensUsed,
+                    subscription: subscriptionCheck.subscription
+                  })}\n\n`))
+                  controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+                  safeClose()
+                  return
+                }
 
-                    controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-                    controller.close()
-                    return
+                try {
+                  const parsed = JSON.parse(data)
+                  const content = parsed.choices?.[0]?.delta?.content || ''
+                  if (content) {
+                    fullResponse += content
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
                   }
-
-                  try {
-                    const parsed = JSON.parse(data)
-                    const content = parsed.choices?.[0]?.delta?.content || ''
-                    if (content) {
-                      fullResponse += content
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
-                    }
-                  } catch (e) {
-                    console.error('Error parsing SSE data:', e)
-                  }
+                } catch {
+                  // Incomplete JSON fragment — will be reassembled in next chunk
                 }
               }
             }
           } catch (error) {
             console.error('Stream reading error:', error)
-            controller.error(error)
+            if (!closed) controller.error(error)
           } finally {
             reader.releaseLock()
-            controller.close()
+            safeClose()
           }
         },
       })
