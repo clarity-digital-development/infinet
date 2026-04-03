@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -25,10 +25,30 @@ export default function PricingPage() {
   const { toast } = useToast()
   const [loading, setLoading] = useState<string | null>(null)
   const [showTokenInfo, setShowTokenInfo] = useState(false)
+  const [currentTier, setCurrentTier] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isSignedIn) {
+      fetch('/api/user/usage')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => { if (data) setCurrentTier(data.subscription.tier) })
+        .catch(() => {})
+    }
+  }, [isSignedIn])
 
   const handleSubscribe = async (tierId: string) => {
     if (!isSignedIn) {
       router.push('/sign-in')
+      return
+    }
+
+    // Block if they already have an active paid subscription
+    if (currentTier && currentTier !== 'free') {
+      toast({
+        title: 'Already Subscribed',
+        description: `You're already on the ${currentTier} plan. Manage your subscription from the Settings panel in the chat.`,
+        variant: 'destructive',
+      })
       return
     }
 
@@ -43,11 +63,14 @@ export default function PricingPage() {
         body: JSON.stringify({ tierId }),
       })
 
+      const responseData = await response.json()
+
       if (!response.ok) {
-        throw new Error('Failed to create checkout session')
+        throw new Error(responseData.error || 'Failed to create checkout session')
       }
 
-      const { sessionId } = await response.json()
+      const { sessionId } = responseData
+
       const stripe = await stripePromise
 
       if (!stripe) {

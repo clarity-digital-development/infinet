@@ -22,8 +22,9 @@ import {
   Settings,
 } from 'lucide-react'
 import { SettingsPanel } from './SettingsPanel'
+import { Progress } from '@/components/ui/progress'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import {
   DropdownMenu,
@@ -62,6 +63,21 @@ export function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const { user } = useUser()
   const userEmail = user?.emailAddresses?.[0]?.emailAddress
   const isDeveloper = userEmail?.toLowerCase() === 'tannercarlson@vvsvault.com'
+
+  const [subscriptionTier, setSubscriptionTier] = useState<string | null>(null)
+  const [usageData, setUsageData] = useState<{ tokensUsed: number; tokenLimit: number | 'unlimited'; percentUsed: number } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/user/usage')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setSubscriptionTier(data.subscription.tier)
+          setUsageData(data.usage)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const {
     chats,
@@ -475,7 +491,20 @@ export function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
           {/* Settings and Upgrade section at bottom */}
           <div className="border-t p-4 space-y-2">
             <SettingsPanel />
-            {!isDeveloper && (
+
+            {/* Mini usage bar for paid users */}
+            {usageData && subscriptionTier && subscriptionTier !== 'free' && subscriptionTier !== 'developer' && usageData.tokenLimit !== 'unlimited' && (
+              <div className="px-1 space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{usageData.tokensUsed.toLocaleString()} used</span>
+                  <span>{(usageData.tokenLimit as number).toLocaleString()} limit</span>
+                </div>
+                <Progress value={usageData.percentUsed} className="h-1.5" />
+              </div>
+            )}
+
+            {/* Only show Upgrade button for free tier users */}
+            {!isDeveloper && (!subscriptionTier || subscriptionTier === 'free') && (
               <Link href="/pricing" className="block">
                 <Button
                   variant="outline"
@@ -486,6 +515,7 @@ export function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                 </Button>
               </Link>
             )}
+
             {isDeveloper && (
               <div className="text-center text-xs text-muted-foreground">
                 <Crown className="h-3 w-3 text-primary inline-block mr-1" />
