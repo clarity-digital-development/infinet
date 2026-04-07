@@ -482,7 +482,7 @@ export async function getUserByStripeCustomerId(customerId: string): Promise<any
       WHERE stripe_customer_id = ${customerId}
       LIMIT 1
     `
-    return result.rows[0] ? { id: result.rows[0].user_id, ...result.rows[0] } : null
+    return result.rows[0] ? { ...result.rows[0], id: result.rows[0].user_id } : null
   } catch (error) {
     console.error('Error getting user by stripe ID:', error)
     return null
@@ -497,7 +497,7 @@ export async function getUserByClerkId(clerkId: string): Promise<any> {
       WHERE user_id = ${clerkId}
       LIMIT 1
     `
-    return result.rows[0] ? { id: clerkId, ...result.rows[0] } : null
+    return result.rows[0] ? { ...result.rows[0], id: clerkId } : null
   } catch (error) {
     console.error('Error getting user by clerk ID:', error)
     return null
