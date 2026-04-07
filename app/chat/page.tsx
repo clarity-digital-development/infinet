@@ -33,9 +33,6 @@ export default function ChatPage() {
     const checkoutId = sessionId || storedSessionId
     if (!checkoutId) return
 
-    // Clear stored session
-    sessionStorage.removeItem('pending_checkout_session')
-
     fetch('/api/verify-checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -44,6 +41,8 @@ export default function ChatPage() {
       .then(res => res.json())
       .then(data => {
         if (data.success) {
+          // Only clear session after successful activation
+          sessionStorage.removeItem('pending_checkout_session')
           console.log(`Subscription activated: ${data.tier}`)
           // Hard reload so subscription state is fresh from the database
           window.location.href = '/chat?activated=1'

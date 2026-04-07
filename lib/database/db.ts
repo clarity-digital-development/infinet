@@ -350,7 +350,7 @@ export async function getOrCreateUser(clerkId: string, email: string): Promise<a
     `
 
     if (existing.rows[0]) {
-      return { id: clerkId, ...existing.rows[0] }
+      return { ...existing.rows[0], id: clerkId }
     }
 
     // Create new user with free tier
@@ -376,7 +376,7 @@ export async function getOrCreateUser(clerkId: string, email: string): Promise<a
       ) VALUES (
         ${clerkId}, ${now.toISOString()}, ${endOfMonth.toISOString()},
         0, 0, 500, CURRENT_TIMESTAMP
-      )
+      ) ON CONFLICT (user_id) DO NOTHING
     `
 
     return { id: clerkId, email, tier: 'free', status: 'active' }
@@ -407,10 +407,10 @@ export async function updateUserSubscription(
     const subscriptionId = updates.stripe_subscription_id || null
     const rawStart = updates.subscription_period_start
     const rawEnd = updates.subscription_period_end
-    const periodStart = (rawStart && !isNaN(rawStart.getTime()) ? rawStart : now).toISOString()
-    const periodEnd = (rawEnd && !isNaN(rawEnd.getTime()) ? rawEnd : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)).toISOString()
+    const validStart = rawStart && !isNaN(rawStart.getTime()) ? rawStart.toISOString() : null
+    const validEnd = rawEnd && !isNaN(rawEnd.getTime()) ? rawEnd.toISOString() : null
 
-    // First try to update existing row
+    // First try to update existing row — only update period dates if explicitly provided
     const result = await query(
       `UPDATE users_subscription SET
         tier = COALESCE($1, tier),
@@ -426,8 +426,8 @@ export async function updateUserSubscription(
         updates.subscription_status || null,
         updates.stripe_customer_id || null,
         updates.stripe_subscription_id || null,
-        periodStart,
-        periodEnd,
+        validStart,
+        validEnd,
         userId
       ]
     )
@@ -435,6 +435,8 @@ export async function updateUserSubscription(
     // If no row was updated, insert a new one
     if (result.rowCount === 0) {
       console.log(`No existing subscription for ${userId}, creating new row`)
+      const insertStart = validStart || now.toISOString()
+      const insertEnd = validEnd || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
       await query(
         `INSERT INTO users_subscription (
           user_id, tier, status, stripe_customer_id, stripe_subscription_id,
@@ -443,12 +445,12 @@ export async function updateUserSubscription(
         ON CONFLICT (user_id) DO UPDATE SET
           tier = EXCLUDED.tier,
           status = EXCLUDED.status,
-          stripe_customer_id = EXCLUDED.stripe_customer_id,
-          stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-          current_period_start = EXCLUDED.current_period_start,
-          current_period_end = EXCLUDED.current_period_end,
+          stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, users_subscription.stripe_customer_id),
+          stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, users_subscription.stripe_subscription_id),
+          current_period_start = COALESCE(EXCLUDED.current_period_start, users_subscription.current_period_start),
+          current_period_end = COALESCE(EXCLUDED.current_period_end, users_subscription.current_period_end),
           updated_at = CURRENT_TIMESTAMP`,
-        [userId, tier, status, customerId, subscriptionId, periodStart, periodEnd]
+        [userId, tier, status, customerId, subscriptionId, insertStart, insertEnd]
       )
     }
 
@@ -463,7 +465,7 @@ export async function updateUserSubscription(
         ON CONFLICT (user_id) DO UPDATE SET
           tokens_remaining = $4 - monthly_usage_cache.total_tokens,
           last_updated = CURRENT_TIMESTAMP`,
-        [userId, periodStart, periodEnd, limit]
+        [userId, validStart || now.toISOString(), validEnd || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(), limit]
       )
     }
 
