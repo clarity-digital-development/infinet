@@ -426,8 +426,8 @@ export async function updateUserSubscription(
         updates.subscription_status || null,
         updates.stripe_customer_id || null,
         updates.stripe_subscription_id || null,
-        updates.subscription_period_start?.toISOString() || null,
-        updates.subscription_period_end?.toISOString() || null,
+        periodStart,
+        periodEnd,
         userId
       ]
     )
