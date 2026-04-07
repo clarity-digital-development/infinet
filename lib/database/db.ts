@@ -405,8 +405,10 @@ export async function updateUserSubscription(
     const status = updates.subscription_status || 'active'
     const customerId = updates.stripe_customer_id || null
     const subscriptionId = updates.stripe_subscription_id || null
-    const periodStart = (updates.subscription_period_start || now).toISOString()
-    const periodEnd = (updates.subscription_period_end || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)).toISOString()
+    const rawStart = updates.subscription_period_start
+    const rawEnd = updates.subscription_period_end
+    const periodStart = (rawStart && !isNaN(rawStart.getTime()) ? rawStart : now).toISOString()
+    const periodEnd = (rawEnd && !isNaN(rawEnd.getTime()) ? rawEnd : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)).toISOString()
 
     // First try to update existing row
     const result = await query(
@@ -513,7 +515,7 @@ export async function logSubscriptionEvent(
 ): Promise<void> {
   try {
     await sql`
-      INSERT INTO subscription_history (
+      INSERT INTO subscription_events (
         user_id, event_type, tier, status,
         stripe_event_id, metadata, created_at
       ) VALUES (
