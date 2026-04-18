@@ -1,8 +1,10 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkSubscription, isSubscriptionError } from '@/middleware/checkSubscription'
 import { trackTokenUsage, checkUsageAlerts } from '@/lib/database/db'
 import { estimateTokens } from '@/lib/subscription-tiers'
+import { detectImageIntent } from '@/lib/image-intent'
+import { hasArtifacialSubscription, buildHandoffMarkdown } from '@/lib/artifacial'
 
 // Token counter - counts only user input tokens for billing purposes.
 // AI response tokens are not charged since users shouldn't pay for model verbosity.
@@ -45,6 +47,40 @@ export async function POST(request: NextRequest) {
     // Estimate tokens for this request
     const lastMessage = messages[messages.length - 1]?.content || ''
     const estimatedTokens = estimateTokens(lastMessage)
+
+    // Intercept image/video generation requests → handoff to artifacial.io
+    if (detectImageIntent(lastMessage)) {
+      console.log(`Image intent detected for user ${userId} — routing to artifacial.io handoff`)
+
+      const user = await currentUser()
+      const email = user?.emailAddresses[0]?.emailAddress || ''
+      const isSubscriber = email ? await hasArtifacialSubscription(email) : false
+
+      const markdown = buildHandoffMarkdown(lastMessage, isSubscriber)
+
+      if (streaming) {
+        const encoder = new TextEncoder()
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: markdown })}\n\n`))
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+          },
+        })
+        return new NextResponse(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        })
+      }
+
+      return NextResponse.json({
+        choices: [{ message: { role: 'assistant', content: markdown } }],
+        usage: { tokensUsed: 0, subscription: subscriptionCheck.subscription },
+      })
+    }
 
     console.log('Token calculation:', {
       messageLength: lastMessage.length,
