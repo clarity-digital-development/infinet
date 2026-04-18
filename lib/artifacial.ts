@@ -38,25 +38,24 @@ export async function hasArtifacialSubscription(email: string): Promise<boolean>
   }
 }
 
-export function buildArtifacialUrl(prompt: string, isSubscriber: boolean): string {
-  const base = isSubscriber ? `${ARTIFACIAL_URL}/generate` : ARTIFACIAL_URL
+// Always route through the root so artifacial's landing page handles
+// attribution tracking + auth-aware redirect (signed-in users get routed
+// straight to /generate, signed-out users go through /sign-up with the
+// prompt preserved in callbackUrl).
+export function buildArtifacialUrl(prompt: string): string {
   const params = new URLSearchParams({ prompt, ref: 'infinet' })
-  return `${base}?${params.toString()}`
+  return `${ARTIFACIAL_URL}/?${params.toString()}`
 }
 
 export function buildHandoffMarkdown(prompt: string, isSubscriber: boolean): string {
-  const url = buildArtifacialUrl(prompt, isSubscriber)
+  const url = buildArtifacialUrl(prompt)
 
   if (isSubscriber) {
     return `### You're already an artifacial.io subscriber
 
-Image and video generation lives on **artifacial.io** — our sister product focused on unrestricted visual creation.
+Image and video generation lives on **artifacial.io** — our sister product focused on unrestricted visual creation. We've pre-filled your prompt so you can pick up right where you left off.
 
-We've pre-filled your prompt:
-
-> ${prompt}
-
-**[Open in artifacial.io →](${url})**`
+**[Continue on artifacial.io →](${url})**`
   }
 
   return `### Image generation isn't available in Infinet
