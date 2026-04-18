@@ -17,7 +17,9 @@ import {
   ArrowRight,
   X,
   Check,
-  MessageSquare
+  MessageSquare,
+  Sparkles,
+  ExternalLink
 } from 'lucide-react'
 import { useEffect, useState, useRef } from 'react'
 
@@ -366,6 +368,50 @@ export default function Home() {
               </AnimatedSection>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Sister Product — Artifacial.io */}
+      <section className="relative py-20 sm:py-28">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <AnimatedSection>
+            <a
+              href="https://artifacial.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group block max-w-5xl mx-auto"
+            >
+              <div className="relative p-8 sm:p-12 rounded-3xl bg-gradient-to-br from-violet-500/10 via-fuchsia-500/5 to-transparent border border-violet-400/20 backdrop-blur-sm overflow-hidden transition-all duration-300 hover:border-violet-400/40 hover:from-violet-500/15">
+                {/* Decorative glow */}
+                <div className="absolute -top-24 -right-24 w-96 h-96 bg-violet-500/20 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="relative flex flex-col md:flex-row items-start md:items-center gap-8">
+                  <div className="flex-shrink-0">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+                      <Sparkles className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
+                    </div>
+                  </div>
+
+                  <div className="flex-1">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/20 border border-violet-400/30 text-violet-300 text-xs font-medium mb-3">
+                      Sister Product
+                    </div>
+                    <h2 className="font-display text-2xl sm:text-3xl md:text-4xl font-semibold mb-3 leading-tight">
+                      Want to generate images without limits?
+                    </h2>
+                    <p className="text-muted-foreground text-base sm:text-lg mb-4 leading-relaxed">
+                      Try <span className="text-violet-300 font-medium">artifacial.io</span> — our unrestricted image generation platform built for creators who need full creative freedom.
+                    </p>
+                    <div className="inline-flex items-center gap-2 text-violet-300 font-medium group-hover:gap-3 transition-all">
+                      Visit artifacial.io
+                      <ExternalLink className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </a>
+          </AnimatedSection>
         </div>
       </section>
 
