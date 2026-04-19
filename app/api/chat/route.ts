@@ -5,6 +5,7 @@ import { trackTokenUsage, checkUsageAlerts } from '@/lib/database/db'
 import { estimateTokens } from '@/lib/subscription-tiers'
 import { detectImageIntent } from '@/lib/image-intent'
 import { hasArtifacialSubscription, buildHandoffMarkdown } from '@/lib/artifacial'
+import { resolveModelChain } from '@/lib/models'
 
 // Token counter - counts only user input tokens for billing purposes.
 // AI response tokens are not charged since users shouldn't pay for model verbosity.
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
       return subscriptionCheck
     }
 
-    const { messages, streaming = true } = await request.json()
+    const { messages, streaming = true, model: requestedModel } = await request.json()
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -100,10 +101,13 @@ export async function POST(request: NextRequest) {
 
     console.log(`Processing chat for user ${userId}, estimated tokens: ${estimatedTokens}`)
 
-    const MODELS = ['venice-uncensored', 'olafangensan-glm-4.7-flash-heretic']
+    const userTier = subscriptionCheck.subscription?.tier || 'free'
+    const modelChain = resolveModelChain(requestedModel, userTier)
+    console.log(`Model chain for user ${userId} (tier: ${userTier}):`, modelChain)
+
     let response!: Response
 
-    for (const model of MODELS) {
+    for (const model of modelChain) {
       response = await fetch(veniceApiUrl, {
         method: 'POST',
         headers: {
@@ -121,7 +125,7 @@ export async function POST(request: NextRequest) {
       })
 
       if (response.ok) {
-        if (model !== MODELS[0]) {
+        if (model !== modelChain[0]) {
           console.log(`Primary model failed, using fallback: ${model}`)
         }
         break
@@ -131,7 +135,7 @@ export async function POST(request: NextRequest) {
       console.error(`Venice API error with ${model}:`, response.status, errorText)
 
       // If this is the last model, return the error
-      if (model === MODELS[MODELS.length - 1]) {
+      if (model === modelChain[modelChain.length - 1]) {
         return NextResponse.json(
           { error: `API error: ${response.status}` },
           { status: response.status }

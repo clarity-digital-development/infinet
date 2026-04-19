@@ -25,17 +25,17 @@ export function CodeBlock({ code, language, className }: CodeBlockProps) {
   }
 
   return (
-    <div className={cn("relative group", className)}>
-      <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className={cn("relative", className)}>
+      <div className="absolute right-2 top-2">
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           onClick={handleCopy}
           className="h-8 px-2"
         >
           {copied ? (
             <>
-              <Check className="h-4 w-4 mr-1" />
+              <Check className="h-4 w-4 mr-1 text-green-500" />
               Copied
             </>
           ) : (

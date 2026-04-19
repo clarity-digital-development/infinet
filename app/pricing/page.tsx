@@ -138,18 +138,8 @@ export default function PricingPage() {
                 </div>
                 <CardDescription>{tier.description}</CardDescription>
                 <div className="mt-4">
-                  {(tier.id === 'premium' || tier.id === 'limitless') && (
-                    <span className="text-2xl line-through opacity-50 text-muted-foreground mr-2">
-                      ${tier.id === 'premium' ? '100' : '300'}
-                    </span>
-                  )}
                   <span className="text-4xl font-bold">${tier.price}</span>
                   <span className="text-muted-foreground">/month</span>
-                  {(tier.id === 'premium' || tier.id === 'limitless') && (
-                    <span className="ml-2 text-sm text-green-600 dark:text-green-400 font-semibold">
-                      Save ${tier.id === 'premium' ? '50' : '200'}!
-                    </span>
-                  )}
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
                   {tier.tokenLimit.toLocaleString()} tokens/month
@@ -197,18 +187,96 @@ export default function PricingPage() {
           </Button>
         </div>
 
+        {/* Feature comparison table */}
+        <div className="mt-16 max-w-5xl mx-auto">
+          <h2 className="text-2xl font-bold text-center mb-8">Compare plans</h2>
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left p-4 font-medium">Feature</th>
+                  <th className="text-center p-4 font-medium">Free</th>
+                  <th className="text-center p-4 font-medium">Starter</th>
+                  <th className="text-center p-4 font-medium">Premium</th>
+                  <th className="text-center p-4 font-medium">Limitless</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                <tr>
+                  <td className="p-4">Tokens per month</td>
+                  <td className="p-4 text-center">500</td>
+                  <td className="p-4 text-center">10,000</td>
+                  <td className="p-4 text-center">50,000</td>
+                  <td className="p-4 text-center">100,000</td>
+                </tr>
+                <tr>
+                  <td className="p-4">Daily request limit</td>
+                  <td className="p-4 text-center">10</td>
+                  <td className="p-4 text-center">30</td>
+                  <td className="p-4 text-center">60</td>
+                  <td className="p-4 text-center">Unlimited</td>
+                </tr>
+                <tr>
+                  <td className="p-4">Text chat</td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                </tr>
+                <tr>
+                  <td className="p-4">File uploads</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                </tr>
+                <tr>
+                  <td className="p-4">Model selection</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                </tr>
+                <tr>
+                  <td className="p-4">Extended reasoning</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                </tr>
+                <tr>
+                  <td className="p-4">Priority model routing</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center text-muted-foreground">—</td>
+                  <td className="p-4 text-center"><Check className="h-4 w-4 mx-auto text-green-500" /></td>
+                </tr>
+                <tr>
+                  <td className="p-4">Support</td>
+                  <td className="p-4 text-center text-muted-foreground">Community</td>
+                  <td className="p-4 text-center text-muted-foreground">Community</td>
+                  <td className="p-4 text-center">Email</td>
+                  <td className="p-4 text-center">Priority email</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Info */}
         <div className="mt-12 max-w-3xl mx-auto">
           <Card>
             <CardHeader>
-              <CardTitle>Important Information</CardTitle>
+              <CardTitle>Good to know</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="space-y-2 text-sm">
                 <li>• New users get 500 free tokens every month</li>
-                <li>• Upgrade anytime to access more tokens and features</li>
-                <li>• Tokens do not roll over to the next month</li>
-                <li>• Hard limit enforcement - no overage charges</li>
-                <li>• All plans include priority support</li>
+                <li>• Tokens reset each billing cycle — they don't roll over</li>
+                <li>• Hard limit enforcement means no surprise overage charges</li>
+                <li>• Cancel anytime from the Settings panel</li>
+                <li>• Need image or video generation? Check out our sister product <a href="https://artifacial.io" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">artifacial.io</a></li>
+                <li>• Questions? Email <a href="mailto:support@infinetai.org" className="text-primary hover:underline">support@infinetai.org</a></li>
               </ul>
             </CardContent>
           </Card>
@@ -233,9 +301,8 @@ export default function PricingPage() {
             <div>
               <h3 className="font-semibold mb-2">What counts as tokens?</h3>
               <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>• Average message: ~100 tokens</li>
-                <li>• Average AI response: ~150 tokens</li>
-                <li>• Image generation: ~500 tokens</li>
+                <li>• Average message: ~20 tokens</li>
+                <li>• Longer / detailed message: ~100+ tokens</li>
                 <li>• File upload processing: ~200 tokens</li>
               </ul>
             </div>

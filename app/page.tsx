@@ -466,14 +466,17 @@ export default function Home() {
               <Link href="/pricing" className="hover:text-foreground transition-colors">
                 Pricing
               </Link>
+              <a href="https://artifacial.io" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
+                artifacial.io
+              </a>
+              <a href="mailto:support@infinetai.org" className="hover:text-foreground transition-colors">
+                Support
+              </a>
               <Link href="#" className="hover:text-foreground transition-colors">
                 Privacy
               </Link>
               <Link href="#" className="hover:text-foreground transition-colors">
                 Terms
-              </Link>
-              <Link href="#" className="hover:text-foreground transition-colors">
-                Contact
               </Link>
             </div>
 

@@ -143,16 +143,23 @@ export function MessageList({ messages, loadingMessage, isGenerating = false }: 
                     ? 'bg-primary text-primary-foreground ml-auto'
                     : 'bg-muted'
                 )}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium opacity-70">
-                      {message.role === 'user' ? 'You' : 'Infinet'}
-                    </span>
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs font-medium opacity-70">
+                        {message.role === 'user' ? 'You' : 'Infinet'}
+                      </span>
+                      {message.timestamp && (
+                        <span className="text-xs opacity-50">
+                          {new Date(message.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => copyToClipboard(message.content, message.id)}
                       className={cn(
-                        "h-6 px-2 ml-2",
+                        "h-6 px-2 flex-shrink-0",
                         message.role === 'user' ? 'hover:bg-primary/80' : ''
                       )}
                     >

@@ -4,29 +4,59 @@ import { useState, useRef, useEffect } from 'react'
 import { useChatStore } from '@/lib/store'
 import { MessageList } from './MessageList'
 import { ShareDialog } from './ShareDialog'
-import { ImageGenerator } from './ImageGenerator'
 import { FileUploader } from './FileUploader'
 import { UpgradePrompt } from './UpgradePrompt'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, StopCircle, Loader2, Share2, Trash2, ImageIcon, Paperclip } from 'lucide-react'
+import { Send, StopCircle, Share2, Paperclip, ChevronDown, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import Link from 'next/link'
 import { cycleLoadingMessages } from '@/lib/loading-messages'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import Link from 'next/link'
+
+interface AvailableModel {
+  id: string
+  label: string
+  description: string
+  supportsVision: boolean
+  supportsReasoning: boolean
+}
 
 export function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
-  const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false)
-  const [imageGeneratorPrompt, setImageGeneratorPrompt] = useState('')
   const [fileUploaderOpen, setFileUploaderOpen] = useState(false)
   const [showUpgradePrompt, setShowUpgradePrompt] = useState(false)
   const [tokenInfo, setTokenInfo] = useState<{ tier?: string; limit?: number; used?: number }>({})
   const [loadingMessage, setLoadingMessage] = useState('')
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [userTier, setUserTier] = useState<string>('free')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { toast } = useToast()
+
+  // Fetch available models for the user's tier
+  useEffect(() => {
+    fetch('/api/user/models')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setAvailableModels(data.models)
+          setUserTier(data.tier)
+          if (!selectedModel && data.models.length > 0) {
+            setSelectedModel(data.models[0].id)
+          }
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const {
     getCurrentChat,
@@ -62,44 +92,6 @@ export function ChatInterface() {
 
     const userMessage = input.trim()
     setInput('')
-
-    // Check if user wants to generate an image
-    const imageGenerationPhrases = [
-      'generate an image',
-      'generate me an image',
-      'create an image',
-      'create me an image',
-      'make an image',
-      'make me an image',
-      'draw',
-      'generate image',
-      'create image'
-    ]
-
-    const lowerMessage = userMessage.toLowerCase()
-    const isImageRequest = imageGenerationPhrases.some(phrase => lowerMessage.startsWith(phrase))
-
-    if (isImageRequest) {
-      // Extract the actual prompt (remove the trigger phrase)
-      let imagePrompt = userMessage
-      for (const phrase of imageGenerationPhrases) {
-        if (lowerMessage.startsWith(phrase)) {
-          imagePrompt = userMessage.substring(phrase.length).trim()
-          // Remove "of" or ":" if they start the prompt
-          imagePrompt = imagePrompt.replace(/^(of|:)\s*/i, '')
-          break
-        }
-      }
-
-      // Open image generator with the prompt
-      if (imagePrompt) {
-        setImageGeneratorOpen(true)
-        // We'll need to pass the prompt to the image generator
-        // For now, let's store it in a state
-        setImageGeneratorPrompt(imagePrompt)
-      }
-      return
-    }
 
     setIsLoading(true)
     setIsGenerating(true)
@@ -138,6 +130,7 @@ export function ChatInterface() {
             { role: 'user', content: userMessage }
           ],
           streaming: true,
+          model: selectedModel,
         }),
         signal: controller.signal,
       })
@@ -269,35 +262,6 @@ export function ChatInterface() {
     }
   }
 
-  const handleImageGenerated = (images: string[], prompt: string, metadata?: any) => {
-    // Create new chat if needed
-    let chatId = currentChatId
-    if (!chatId) {
-      chatId = createChat()
-    }
-
-    // Add the image generation request as a user message
-    addMessage(chatId, {
-      role: 'user',
-      content: `Generate image: ${prompt}`,
-      type: 'text',
-    })
-
-    // Add the generated images as an assistant message
-    addMessage(chatId, {
-      role: 'assistant',
-      content: `Generated ${images.length} image${images.length > 1 ? 's' : ''} for: "${prompt}"`,
-      type: 'image',
-      images: images.map(img => `data:image/png;base64,${img}`),
-      metadata: metadata,
-    })
-
-    toast({
-      title: 'Images Generated!',
-      description: `Successfully created ${images.length} image${images.length > 1 ? 's' : ''}`,
-    })
-  }
-
   const handleFileUploaded = (file: File, content: string) => {
     // Create new chat if needed
     let chatId = currentChatId
@@ -356,27 +320,60 @@ export function ChatInterface() {
 
   return (
     <div className="flex h-full flex-col relative">
-      <div className="flex items-center justify-between border-b px-2 sm:px-4 py-2">
-        <h2 className="font-semibold text-sm sm:text-base truncate">{currentChat.title}</h2>
-        <div className="flex gap-1 sm:gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setImageGeneratorOpen(true)}
-            title="Generate Image"
-            className="h-8 w-8 sm:h-9 sm:w-9 p-0"
-          >
-            <ImageIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          </Button>
+      <div className="flex items-center justify-between border-b px-2 sm:px-4 py-2 gap-2">
+        <h2 className="font-semibold text-sm sm:text-base truncate flex-shrink min-w-0">{currentChat.title}</h2>
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+          {availableModels.length > 1 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-xs sm:text-sm"
+                  title="Switch model"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline truncate max-w-[120px]">
+                    {availableModels.find(m => m.id === selectedModel)?.label || 'Model'}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                {availableModels.map(m => (
+                  <DropdownMenuItem
+                    key={m.id}
+                    onClick={() => setSelectedModel(m.id)}
+                    className="flex flex-col items-start gap-0.5 cursor-pointer py-2"
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      <span className="font-medium">{m.label}</span>
+                      {selectedModel === m.id && (
+                        <span className="ml-auto text-xs text-primary">Active</span>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">{m.description}</span>
+                  </DropdownMenuItem>
+                ))}
+                {(userTier === 'free' || userTier === 'starter') && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/pricing" className="text-xs text-primary cursor-pointer">
+                      Upgrade for more models →
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShareDialogOpen(true)}
             disabled={currentChat.messages.length === 0}
             title="Share Chat"
-            className="h-8 w-8 sm:h-9 sm:w-9 p-0"
+            className="h-11 w-11 p-0"
           >
-            <Share2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <Share2 className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -392,34 +389,18 @@ export function ChatInterface() {
       )}
 
       <div className="border-t p-2 sm:p-4 flex-shrink-0 bg-background">
-        <form onSubmit={handleSubmit} className="flex gap-1 sm:gap-2">
-          <div className="flex gap-1 sm:gap-2">
-            <Button
-              type="button"
-              onClick={() => {
-                setImageGeneratorPrompt('')
-                setImageGeneratorOpen(true)
-              }}
-              variant="outline"
-              size="icon"
-              title="Generate Image"
-              disabled={isLoading}
-              className="h-8 w-8 sm:h-10 sm:w-10"
-            >
-              <ImageIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            </Button>
-            <Button
-              type="button"
-              onClick={() => setFileUploaderOpen(true)}
-              variant="outline"
-              size="icon"
-              title="Attach File"
-              disabled={isLoading}
-              className="h-8 w-8 sm:h-10 sm:w-10"
-            >
-              <Paperclip className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            </Button>
-          </div>
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <Button
+            type="button"
+            onClick={() => setFileUploaderOpen(true)}
+            variant="outline"
+            size="icon"
+            title="Attach File"
+            disabled={isLoading}
+            className="h-11 w-11"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <div className="relative flex-1">
             <Textarea
               ref={textareaRef}
@@ -427,7 +408,7 @@ export function ChatInterface() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder='Ask anything privately'
-              className="min-h-[44px] sm:min-h-[52px] pr-12 resize-none text-sm sm:text-base"
+              className="min-h-[44px] sm:min-h-[52px] pr-14 resize-none text-sm sm:text-base"
               disabled={isLoading}
             />
             {isLoading ? (
@@ -436,18 +417,18 @@ export function ChatInterface() {
                 onClick={handleStop}
                 variant="destructive"
                 size="icon"
-                className="absolute right-2 bottom-2 h-7 w-7 sm:h-8 sm:w-8"
+                className="absolute right-2 bottom-2 h-9 w-9"
               >
-                <StopCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <StopCircle className="h-4 w-4" />
               </Button>
             ) : (
               <Button
                 type="submit"
                 disabled={!input.trim()}
                 size="icon"
-                className="absolute right-2 bottom-2 h-7 w-7 sm:h-8 sm:w-8"
+                className="absolute right-2 bottom-2 h-9 w-9"
               >
-                <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <Send className="h-4 w-4" />
               </Button>
             )}
           </div>
@@ -458,16 +439,6 @@ export function ChatInterface() {
         chat={currentChat}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
-      />
-
-      <ImageGenerator
-        open={imageGeneratorOpen}
-        onOpenChange={(open) => {
-          setImageGeneratorOpen(open)
-          if (!open) setImageGeneratorPrompt('')
-        }}
-        onGenerated={handleImageGenerated}
-        initialPrompt={imageGeneratorPrompt}
       />
 
       <FileUploader
