@@ -7,7 +7,14 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { User, Bot, Copy, Check, Download, Maximize2, Globe, Volume2, Loader2 } from 'lucide-react'
+import { User, Bot, Copy, Check, Download, Maximize2, Globe, Volume2, Loader2, MoreVertical, Trash2, RefreshCw } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useChatStore } from '@/lib/store'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import Image from 'next/image'
@@ -22,6 +29,7 @@ interface MessageListProps {
   messages: Message[]
   loadingMessage?: string
   isGenerating?: boolean
+  onRegenerate?: (messageId: string) => void
 }
 
 interface MessageContentProps {
@@ -72,7 +80,8 @@ function MessageContent({ content, isBot, messageId, typedMessageIds, isGenerati
   )
 }
 
-export function MessageList({ messages, loadingMessage, isGenerating = false }: MessageListProps) {
+export function MessageList({ messages, loadingMessage, isGenerating = false, onRegenerate }: MessageListProps) {
+  const { currentChatId, deleteMessage } = useChatStore()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [expandedImage, setExpandedImage] = useState<string | null>(null)
@@ -225,6 +234,39 @@ export function MessageList({ messages, loadingMessage, isGenerating = false }: 
                           <Copy className="h-3 w-3" />
                         )}
                       </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "h-6 px-2",
+                              message.role === 'user' ? 'hover:bg-primary/80' : ''
+                            )}
+                          >
+                            <MoreVertical className="h-3 w-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {message.role === 'assistant' && onRegenerate && (
+                            <DropdownMenuItem onClick={() => onRegenerate(message.id)}>
+                              <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                              Regenerate
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => copyToClipboard(message.content, message.id)}>
+                            <Copy className="mr-2 h-3.5 w-3.5" />
+                            Copy text
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => currentChatId && deleteMessage(currentChatId, message.id)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-3.5 w-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
 

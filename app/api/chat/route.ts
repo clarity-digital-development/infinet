@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       return subscriptionCheck
     }
 
-    const { messages, streaming = true, model: requestedModel, webSearch = false } = await request.json()
+    const { messages, streaming = true, model: requestedModel, webSearch = false, reasoningEffort, privateMode = false } = await request.json()
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -139,16 +139,18 @@ export async function POST(request: NextRequest) {
           stream: streaming,
           temperature: 0.7,
           max_tokens: 4096,
+          ...(reasoningEffort && { reasoning: { effort: reasoningEffort } }),
           venice_parameters: {
-            // Auto-search when user toggles the button; otherwise off.
             // enable_web_search is a string enum: "auto" | "on" | "off"
             enable_web_search: webSearch ? 'on' : 'off',
-            // Also auto-scrape URLs the user pastes in, regardless of search toggle
+            // Always auto-scrape URLs users paste
             enable_web_scraping: true,
-            // Emit inline citations + citations array in response
             enable_web_citations: webSearch,
-            // For streaming, deliver citations in the first SSE chunk
             include_search_results_in_stream: webSearch && streaming,
+            // Private mode — end-to-end encrypted (only on E2EE-capable models)
+            enable_e2ee: privateMode,
+            // When private, don't inject Venice's default system prompt
+            include_venice_system_prompt: !privateMode,
           },
         }),
       })

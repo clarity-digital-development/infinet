@@ -8,7 +8,8 @@ import { FileUploader } from './FileUploader'
 import { UpgradePrompt } from './UpgradePrompt'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, StopCircle, Share2, Paperclip, ChevronDown, Sparkles, Globe, Mic, Loader2 } from 'lucide-react'
+import { Send, StopCircle, Share2, Paperclip, ChevronDown, Sparkles, Globe, Mic, Loader2, Lock, Zap } from 'lucide-react'
+import { matchSlashCommands, extractSlashCommand, type SlashCommand } from '@/lib/slash-commands'
 import { useToast } from '@/hooks/use-toast'
 import { cycleLoadingMessages } from '@/lib/loading-messages'
 import {
@@ -40,8 +41,12 @@ export function ChatInterface() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [userTier, setUserTier] = useState<string>('free')
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>('medium')
+  const [privateMode, setPrivateMode] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([])
+  const [slashIndex, setSlashIndex] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
@@ -177,6 +182,7 @@ export function ChatInterface() {
     isGenerating,
     setIsGenerating,
     updateChatTitle,
+    truncateFromMessage,
   } = useChatStore()
 
   const currentChat = getCurrentChat()
@@ -202,8 +208,14 @@ export function ChatInterface() {
 
     if (!input.trim() || isLoading) return
 
-    const userMessage = input.trim()
+    // Expand slash commands: `/summarize foo` → `<prefix>foo`
+    const raw = input.trim()
+    const slashMatch = extractSlashCommand(raw)
+    const userMessage = slashMatch && slashMatch.rest
+      ? slashMatch.command.prefix + slashMatch.rest
+      : raw
     setInput('')
+    setSlashCommands([])
 
     setIsLoading(true)
     setIsGenerating(true)
@@ -276,6 +288,8 @@ export function ChatInterface() {
           streaming: true,
           model: selectedModel,
           webSearch: webSearchEnabled,
+          reasoningEffort,
+          privateMode,
         }),
         signal: controller.signal,
       })
@@ -418,11 +432,68 @@ export function ChatInterface() {
     }
   }
 
+  // Update slash palette when input changes
+  useEffect(() => {
+    const matches = matchSlashCommands(input)
+    setSlashCommands(matches)
+    setSlashIndex(0)
+  }, [input])
+
+  const selectSlashCommand = (cmd: SlashCommand) => {
+    // Replace the /name with empty, prepare the prefix template
+    setInput(`${cmd.label} `)
+    setSlashCommands([])
+    textareaRef.current?.focus()
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Navigate slash palette
+    if (slashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashIndex(i => (i + 1) % slashCommands.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashIndex(i => (i - 1 + slashCommands.length) % slashCommands.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && input === `/${slashCommands[slashIndex]?.name}`)) {
+        e.preventDefault()
+        selectSlashCommand(slashCommands[slashIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        setSlashCommands([])
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
     }
+  }
+
+  // Regenerate: delete the assistant message + any after, resubmit the prior user message
+  const handleRegenerate = async (messageId: string) => {
+    if (!currentChat || !currentChatId || isLoading) return
+    const idx = currentChat.messages.findIndex(m => m.id === messageId)
+    if (idx < 1) return
+    const prevUserMsg = currentChat.messages[idx - 1]
+    if (prevUserMsg.role !== 'user') return
+
+    // Truncate the chat from the message being regenerated (deletes this msg + everything after)
+    truncateFromMessage(currentChatId, messageId)
+
+    // Re-run the last user message through handleSubmit semantics
+    setInput(prevUserMsg.content)
+    // Let state update, then trigger submit in next tick
+    setTimeout(() => {
+      const form = document.querySelector('form')
+      if (form) (form as HTMLFormElement).requestSubmit()
+    }, 50)
   }
 
   const handleFileUploaded = (file: File, content: string) => {
@@ -542,6 +613,54 @@ export function ChatInterface() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
+          {(userTier === 'premium' || userTier === 'limitless' || userTier === 'developer') && (
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 text-xs sm:text-sm"
+                    title="Reasoning depth"
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline capitalize">{reasoningEffort}</span>
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setReasoningEffort('low')}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">Quick</span>
+                      <span className="text-xs text-muted-foreground">Fast responses, minimal reasoning</span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setReasoningEffort('medium')}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">Balanced</span>
+                      <span className="text-xs text-muted-foreground">Default — solid reasoning, reasonable speed</span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setReasoningEffort('high')}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">Deep</span>
+                      <span className="text-xs text-muted-foreground">Extended reasoning, slower but more thorough</span>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant={privateMode ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setPrivateMode(!privateMode)}
+                title={privateMode ? 'Private Mode ON — E2EE encrypted. Click to disable.' : 'Enable Private Mode (E2EE)'}
+                className="h-9 gap-1.5 text-xs sm:text-sm"
+              >
+                <Lock className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{privateMode ? 'Private' : 'Private'}</span>
+              </Button>
+            </>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -555,7 +674,12 @@ export function ChatInterface() {
         </div>
       </div>
 
-      <MessageList messages={currentChat.messages} loadingMessage={loadingMessage} isGenerating={isGenerating || isLoading} />
+      <MessageList
+        messages={currentChat.messages}
+        loadingMessage={loadingMessage}
+        isGenerating={isGenerating || isLoading}
+        onRegenerate={handleRegenerate}
+      />
 
       {showUpgradePrompt && (
         <UpgradePrompt
@@ -565,7 +689,28 @@ export function ChatInterface() {
         />
       )}
 
-      <div className="border-t p-2 sm:p-4 flex-shrink-0 bg-background">
+      <div className="border-t p-2 sm:p-4 flex-shrink-0 bg-background relative">
+        {slashCommands.length > 0 && (
+          <div className="absolute bottom-full left-0 right-0 mx-2 sm:mx-4 mb-1 bg-background border rounded-lg shadow-lg overflow-hidden max-h-64 overflow-y-auto">
+            {slashCommands.map((cmd, idx) => (
+              <button
+                key={cmd.name}
+                type="button"
+                onClick={() => selectSlashCommand(cmd)}
+                onMouseEnter={() => setSlashIndex(idx)}
+                className={`w-full text-left px-3 py-2 flex items-center gap-3 transition-colors ${
+                  idx === slashIndex ? 'bg-accent' : 'hover:bg-accent/50'
+                }`}
+              >
+                <span className="font-mono text-sm font-medium text-primary">{cmd.label}</span>
+                <span className="text-sm text-muted-foreground truncate">{cmd.description}</span>
+              </button>
+            ))}
+            <div className="border-t px-3 py-1.5 text-xs text-muted-foreground">
+              ↑↓ to navigate · Tab to select · Esc to dismiss
+            </div>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Button
             type="button"

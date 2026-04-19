@@ -52,6 +52,8 @@ interface ChatStore {
   deleteChat: (id: string) => void
   updateChatTitle: (id: string, title: string) => void
   addMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void
+  deleteMessage: (chatId: string, messageId: string) => void
+  truncateFromMessage: (chatId: string, messageId: string) => void
   setCurrentChat: (id: string | null) => void
   getCurrentChat: () => Chat | undefined
   setIsGenerating: (generating: boolean) => void
@@ -145,6 +147,27 @@ export const useChatStore = create<ChatStore>()(
 
           return { chats: updatedChats }
         })
+      },
+
+      deleteMessage: (chatId, messageId) => {
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? { ...chat, messages: chat.messages.filter(m => m.id !== messageId), updatedAt: new Date() }
+              : chat
+          ),
+        }))
+      },
+
+      truncateFromMessage: (chatId, messageId) => {
+        set((state) => ({
+          chats: state.chats.map((chat) => {
+            if (chat.id !== chatId) return chat
+            const idx = chat.messages.findIndex(m => m.id === messageId)
+            if (idx === -1) return chat
+            return { ...chat, messages: chat.messages.slice(0, idx), updatedAt: new Date() }
+          }),
+        }))
       },
 
       setCurrentChat: (id) => {
