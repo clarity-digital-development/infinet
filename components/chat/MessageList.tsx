@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { User, Bot, Copy, Check, Download, Maximize2 } from 'lucide-react'
+import { User, Bot, Copy, Check, Download, Maximize2, Globe, Volume2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import Image from 'next/image'
@@ -77,6 +77,46 @@ export function MessageList({ messages, loadingMessage, isGenerating = false }: 
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [expandedImage, setExpandedImage] = useState<string | null>(null)
   const [typedMessageIds] = useState<Set<string>>(() => new Set())
+  const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null)
+  const [playingId, setPlayingId] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const playTTS = async (content: string, messageId: string) => {
+    // Stop any currently playing audio
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current = null
+    }
+    if (playingId === messageId) {
+      setPlayingId(null)
+      return
+    }
+
+    setTtsLoadingId(messageId)
+    try {
+      const res = await fetch('/api/voice/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: content }),
+      })
+      if (!res.ok) throw new Error('TTS failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audioRef.current = audio
+      setPlayingId(messageId)
+      audio.onended = () => {
+        setPlayingId(null)
+        URL.revokeObjectURL(url)
+      }
+      await audio.play()
+    } catch (error) {
+      console.error('TTS playback failed:', error)
+      setPlayingId(null)
+    } finally {
+      setTtsLoadingId(null)
+    }
+  }
 
   useEffect(() => {
     // Auto scroll to bottom when new messages arrive
@@ -154,21 +194,38 @@ export function MessageList({ messages, loadingMessage, isGenerating = false }: 
                         </span>
                       )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => copyToClipboard(message.content, message.id)}
-                      className={cn(
-                        "h-6 px-2 flex-shrink-0",
-                        message.role === 'user' ? 'hover:bg-primary/80' : ''
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {message.role === 'assistant' && message.content && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => playTTS(message.content, message.id)}
+                          className="h-6 px-2"
+                          title={playingId === message.id ? 'Stop' : 'Read aloud'}
+                        >
+                          {ttsLoadingId === message.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Volume2 className={cn('h-3 w-3', playingId === message.id && 'text-primary')} />
+                          )}
+                        </Button>
                       )}
-                    >
-                      {copiedId === message.id ? (
-                        <Check className="h-3 w-3" />
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyToClipboard(message.content, message.id)}
+                        className={cn(
+                          "h-6 px-2",
+                          message.role === 'user' ? 'hover:bg-primary/80' : ''
+                        )}
+                      >
+                        {copiedId === message.id ? (
+                          <Check className="h-3 w-3" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
 
                 <div className={cn(
@@ -233,6 +290,31 @@ export function MessageList({ messages, loadingMessage, isGenerating = false }: 
                     )
                   )}
                 </div>
+
+                {/* Web search citations */}
+                {message.citations && message.citations.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-medium opacity-70">
+                      <Globe className="h-3 w-3" />
+                      <span>Sources ({message.citations.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {message.citations.map((citation, idx) => (
+                        <a
+                          key={idx}
+                          href={citation.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-background/50 border text-xs hover:bg-background hover:border-primary/40 transition-colors max-w-xs truncate"
+                          title={citation.title}
+                        >
+                          <span className="opacity-60">{idx + 1}.</span>
+                          <span className="truncate">{citation.title}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 </div>
               </div>
 

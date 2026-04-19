@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       return subscriptionCheck
     }
 
-    const { messages, streaming = true, model: requestedModel } = await request.json()
+    const { messages, streaming = true, model: requestedModel, webSearch = false } = await request.json()
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -102,8 +102,26 @@ export async function POST(request: NextRequest) {
     console.log(`Processing chat for user ${userId}, estimated tokens: ${estimatedTokens}`)
 
     const userTier = subscriptionCheck.subscription?.tier || 'free'
-    const modelChain = resolveModelChain(requestedModel, userTier)
-    console.log(`Model chain for user ${userId} (tier: ${userTier}):`, modelChain)
+
+    // Detect image content in any message — if present, route to a vision model
+    const hasImageContent = messages.some((msg: any) => {
+      if (Array.isArray(msg.content)) {
+        return msg.content.some((part: any) => part.type === 'image_url')
+      }
+      return false
+    })
+
+    let modelChain: string[]
+    if (hasImageContent) {
+      // Prefer vision-capable models; fall back to default chain
+      modelChain = ['qwen3-vl-235b-a22b', 'claude-sonnet-4-6', ...resolveModelChain(requestedModel, userTier)]
+      // Dedupe while preserving order
+      modelChain = [...new Set(modelChain)]
+      console.log(`Image content detected — routing to vision models:`, modelChain)
+    } else {
+      modelChain = resolveModelChain(requestedModel, userTier)
+      console.log(`Model chain for user ${userId} (tier: ${userTier}):`, modelChain)
+    }
 
     let response!: Response
 
@@ -121,6 +139,17 @@ export async function POST(request: NextRequest) {
           stream: streaming,
           temperature: 0.7,
           max_tokens: 4096,
+          venice_parameters: {
+            // Auto-search when user toggles the button; otherwise off.
+            // enable_web_search is a string enum: "auto" | "on" | "off"
+            enable_web_search: webSearch ? 'on' : 'off',
+            // Also auto-scrape URLs the user pastes in, regardless of search toggle
+            enable_web_scraping: true,
+            // Emit inline citations + citations array in response
+            enable_web_citations: webSearch,
+            // For streaming, deliver citations in the first SSE chunk
+            include_search_results_in_stream: webSearch && streaming,
+          },
         }),
       })
 
@@ -216,6 +245,14 @@ export async function POST(request: NextRequest) {
 
                 try {
                   const parsed = JSON.parse(data)
+
+                  // Forward web search citations — Venice emits these in the
+                  // first SSE chunk under venice_parameters.web_search_citations
+                  const citations = parsed.venice_parameters?.web_search_citations
+                  if (citations && Array.isArray(citations) && citations.length > 0) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ citations })}\n\n`))
+                  }
+
                   const content = parsed.choices?.[0]?.delta?.content || ''
                   if (content) {
                     fullResponse += content

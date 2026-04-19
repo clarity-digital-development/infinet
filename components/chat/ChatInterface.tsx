@@ -8,7 +8,7 @@ import { FileUploader } from './FileUploader'
 import { UpgradePrompt } from './UpgradePrompt'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, StopCircle, Share2, Paperclip, ChevronDown, Sparkles } from 'lucide-react'
+import { Send, StopCircle, Share2, Paperclip, ChevronDown, Sparkles, Globe, Mic, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cycleLoadingMessages } from '@/lib/loading-messages'
 import {
@@ -39,6 +39,117 @@ export function ChatInterface() {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [userTier, setUserTier] = useState<string>('free')
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        if (blob.size < 1024) {
+          toast({ title: 'Recording too short', description: 'Hold the mic for longer.', variant: 'destructive' })
+          setIsTranscribing(false)
+          return
+        }
+        setIsTranscribing(true)
+        try {
+          const form = new FormData()
+          form.append('file', blob, 'recording.webm')
+          const res = await fetch('/api/voice/stt', { method: 'POST', body: form })
+          const data = await res.json()
+          if (data.text) {
+            setInput(prev => prev ? `${prev} ${data.text}` : data.text)
+            textareaRef.current?.focus()
+          } else {
+            toast({ title: 'Transcription failed', description: data.error || 'Please try again', variant: 'destructive' })
+          }
+        } catch (error) {
+          console.error('Transcription error:', error)
+          toast({ title: 'Transcription failed', variant: 'destructive' })
+        } finally {
+          setIsTranscribing(false)
+        }
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+    } catch (error) {
+      console.error('Mic access denied:', error)
+      toast({ title: 'Microphone access denied', description: 'Allow mic access in your browser settings.', variant: 'destructive' })
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    setIsRecording(false)
+  }
+
+  // Drag-and-drop file uploads
+  const [isDragging, setIsDragging] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) setIsDragging(false)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    dragCounterRef.current = 0
+
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+
+    const file = files[0]
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Max 10MB', variant: 'destructive' })
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const content = evt.target?.result as string
+      handleFileUploaded(file, content)
+    }
+    if (file.type.startsWith('image/')) {
+      reader.readAsDataURL(file)
+    } else {
+      reader.readAsText(file)
+    }
+  }
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { toast } = useToast()
 
@@ -65,6 +176,7 @@ export function ChatInterface() {
     currentChatId,
     isGenerating,
     setIsGenerating,
+    updateChatTitle,
   } = useChatStore()
 
   const currentChat = getCurrentChat()
@@ -98,6 +210,7 @@ export function ChatInterface() {
 
     // Create new chat if needed
     let chatId = currentChatId
+    const wasNewChat = !chatId || (currentChat?.messages.length === 0)
     if (!chatId) {
       chatId = createChat()
     }
@@ -107,6 +220,21 @@ export function ChatInterface() {
       role: 'user',
       content: userMessage,
     })
+
+    // Auto-generate a title from the first message (fire-and-forget)
+    if (wasNewChat) {
+      const titleChatId = chatId
+      fetch('/api/chat/title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.title) updateChatTitle(titleChatId, data.title)
+        })
+        .catch(() => {})
+    }
 
     // Create temporary message for streaming
     const tempMessageId = crypto.randomUUID()
@@ -118,6 +246,25 @@ export function ChatInterface() {
     const controller = new AbortController()
     setAbortController(controller)
 
+    // Convert stored messages into Venice's content format.
+    // If a message has images attached, send as multimodal content-parts.
+    const messagesForApi = (currentChat?.messages.filter(m => m.content || (m.images && m.images.length)) || []).map(m => {
+      if (m.images && m.images.length > 0) {
+        return {
+          role: m.role,
+          content: [
+            ...(m.content ? [{ type: 'text', text: m.content }] : []),
+            ...m.images.map(img => ({
+              type: 'image_url',
+              image_url: { url: img }, // Already a data: URL or http URL
+            })),
+          ],
+        }
+      }
+      return { role: m.role, content: m.content }
+    })
+    messagesForApi.push({ role: 'user', content: userMessage })
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -125,12 +272,10 @@ export function ChatInterface() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: [
-            ...currentChat?.messages.filter(m => m.content) || [],
-            { role: 'user', content: userMessage }
-          ],
+          messages: messagesForApi,
           streaming: true,
           model: selectedModel,
+          webSearch: webSearchEnabled,
         }),
         signal: controller.signal,
       })
@@ -194,6 +339,24 @@ export function ChatInterface() {
 
               try {
                 const parsed = JSON.parse(data)
+
+                // Capture citations from web search (arrives in first chunk)
+                if (parsed.citations && Array.isArray(parsed.citations)) {
+                  const store = useChatStore.getState()
+                  store.chats = store.chats.map(c =>
+                    c.id === chatId
+                      ? {
+                          ...c,
+                          messages: c.messages.map((m, idx) =>
+                            idx === c.messages.length - 1
+                              ? { ...m, citations: parsed.citations }
+                              : m
+                          )
+                        }
+                      : c
+                  )
+                }
+
                 if (parsed.content) {
                   accumulatedContent += parsed.content
                   // Update the last assistant message with smoother streaming
@@ -319,7 +482,21 @@ export function ChatInterface() {
   }
 
   return (
-    <div className="flex h-full flex-col relative">
+    <div
+      className="flex h-full flex-col relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-primary/10 border-2 border-dashed border-primary rounded-lg flex items-center justify-center pointer-events-none">
+          <div className="bg-background border border-primary rounded-lg p-6 shadow-lg">
+            <Paperclip className="h-8 w-8 mx-auto mb-2 text-primary" />
+            <p className="text-sm font-medium">Drop file to attach</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between border-b px-2 sm:px-4 py-2 gap-2">
         <h2 className="font-semibold text-sm sm:text-base truncate flex-shrink min-w-0">{currentChat.title}</h2>
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
@@ -400,6 +577,32 @@ export function ChatInterface() {
             className="h-11 w-11"
           >
             <Paperclip className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+            variant={webSearchEnabled ? 'default' : 'outline'}
+            size="icon"
+            title={webSearchEnabled ? 'Web search ON — click to disable' : 'Enable web search for this message'}
+            disabled={isLoading}
+            className="h-11 w-11"
+          >
+            <Globe className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            variant={isRecording ? 'destructive' : 'outline'}
+            size="icon"
+            title={isRecording ? 'Stop recording' : 'Voice input'}
+            disabled={isLoading || isTranscribing}
+            className="h-11 w-11"
+          >
+            {isTranscribing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Mic className={isRecording ? 'h-4 w-4 animate-pulse' : 'h-4 w-4'} />
+            )}
           </Button>
           <div className="relative flex-1">
             <Textarea

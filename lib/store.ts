@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+export interface Citation {
+  title: string
+  url: string
+  date?: string
+  content?: string
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -8,6 +15,7 @@ export interface Message {
   timestamp: Date
   type?: 'text' | 'image'
   images?: string[] // Array of base64 or URLs
+  citations?: Citation[]
   metadata?: {
     prompt?: string
     model?: string
